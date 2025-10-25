@@ -193,4 +193,48 @@ app.post('/reset-password', async (req, res) => {
   }
 });
 
+// Save Profile endpoint (new: updates profile fields in existing users row by mobile)
+app.post('/save-profile', async (req, res) => {
+  const { mobile, shop_name, user_name, email, shop_address } = req.body;
+  if (!mobile || mobile.length !== 10 || !shop_name || !user_name || !shop_address) {
+    return res.status(400).json({ error: 'Missing required profile fields' });
+  }
+
+  try {
+    // Find user by mobile
+    const { data: user, error: findError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('mobile', mobile)
+      .single();
+
+    if (findError || !user) {
+      return res.status(404).json({ error: 'User not found with this mobile' });
+    }
+
+    // Update the existing row with profile data
+    const { data, error } = await supabase
+      .from('users')
+      .update({
+        shop_name: shop_name.trim(),
+        user_name: user_name.trim(),
+        email: email ? email.trim() : null,
+        shop_address: shop_address.trim()
+      })
+      .eq('id', user.id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Profile update error:', error);
+      return res.status(500).json({ error: 'Failed to save profile' });
+    }
+
+    return res.json({ success: true, message: 'Profile saved successfully!' });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Profile save failed' });
+  }
+});
+
 app.listen(PORT, '0.0.0.0', () => console.log(`Server running on 0.0.0.0:${PORT}`));
