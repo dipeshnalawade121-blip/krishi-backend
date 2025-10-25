@@ -143,7 +143,7 @@ app.post('/login', async (req, res) => {
     }
 
     // In a real app, generate a JWT token here for sessions
-    return res.json({ success: true, message: 'Logged in successfully!', user: { mobile: user.mobile } });
+    return res.json({ success: true, message: 'Logged in successfully!', user: { mobile: user.mobile, id: user.id } });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Login failed' });
