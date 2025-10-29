@@ -263,4 +263,68 @@ app.post('/save-profile', async (req, res) => {
   }
 });
 
+
+// ---------------- Google Login (New Route) ----------------
+const { OAuth2Client } = require('google-auth-library');
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+app.post('/auth/google', async (req, res) => {
+  const { id_token } = req.body;
+  if (!id_token) {
+    return res.status(400).json({ error: 'Missing Google ID token' });
+  }
+
+  try {
+    // Verify the token using Google’s library
+    const ticket = await googleClient.verifyIdToken({
+      idToken: id_token,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+
+    const payload = ticket.getPayload();
+    const { sub, email, name, picture } = payload; // 'sub' = Google user ID
+
+    // Check if user exists in Supabase
+    const { data: existingUser, error: findError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('google_id', sub)
+      .single();
+
+    let user;
+
+    if (!existingUser) {
+      // Create new user record if not exists
+      const { data: newUser, error: insertError } = await supabase
+        .from('users')
+        .insert([
+          {
+            google_id: sub,
+            email,
+            user_name: name,
+            profile_pic: picture || null,
+          },
+        ])
+        .select()
+        .single();
+
+      if (insertError) throw insertError;
+      user = newUser;
+    } else {
+      user = existingUser;
+    }
+
+    return res.json({
+      success: true,
+      message: 'Google login successful!',
+      user,
+    });
+  } catch (err) {
+    console.error('Google login error:', err);
+    return res.status(401).json({ error: 'Invalid Google token' });
+  }
+});
+
+
+
 app.listen(PORT, '0.0.0.0', () => console.log(`Server running on 0.0.0.0:${PORT}`));
