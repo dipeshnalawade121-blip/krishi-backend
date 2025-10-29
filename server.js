@@ -282,6 +282,13 @@ app.post('/auth/google', async (req, res) => {
     });
 
     const payload = ticket.getPayload();
+    console.log('Token verification details:', {
+  aud: payload.aud,  // Should match your client ID
+  iss: payload.iss,  // Should be accounts.google.com
+  sub: payload.sub,  // Google user ID
+  exp: payload.exp,  // Expiry timestamp
+  origin: req.headers.origin  // Your site origin
+});
     const { sub, email, name, picture } = payload; // 'sub' = Google user ID
 
     // Check if user exists in Supabase
