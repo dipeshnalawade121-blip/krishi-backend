@@ -193,6 +193,32 @@ app.post('/reset-password', async (req, res) => {
   }
 });
 
+// Get User Profile endpoint (new: fetches profile fields by mobile)
+app.post('/get-user-profile', async (req, res) => {
+  const { mobile } = req.body;
+  if (!mobile || mobile.length !== 10) {
+    return res.status(400).json({ error: 'Invalid mobile number' });
+  }
+
+  try {
+    // Fetch user profile by mobile, selecting only relevant fields
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('user_name, shop_name, email, shop_address')
+      .eq('mobile', mobile)
+      .single();
+
+    if (error || !user) {
+      return res.status(404).json({ error: 'User profile not found' });
+    }
+
+    return res.json({ success: true, user: user });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Failed to fetch profile' });
+  }
+});
+
 // Save Profile endpoint (new: updates profile fields in existing users row by mobile)
 app.post('/save-profile', async (req, res) => {
   const { mobile, shop_name, user_name, email, shop_address } = req.body;
