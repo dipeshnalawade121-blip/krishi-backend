@@ -245,8 +245,8 @@ app.post('/get-user-profile', async (req, res) => {
 
 // Save Profile (User-only) --- MODIFIED ---
 app.post('/save-profile', async (req, res) => {
-  // 1. Accept id (mandatory), mobile (optional), user_name, email
-  const { id, mobile, user_name, email } = req.body;
+  // 1. Accept id (mandatory), mobile (optional), user_name, email, password
+  const { id, mobile, user_name, email, password } = req.body;
 
   // 2. Validate identifier and user_name
   if (!id || !user_name) {
@@ -277,6 +277,16 @@ app.post('/save-profile', async (req, res) => {
 
     if (mobile) {
       updatePayload.mobile = mobile.trim();
+    }
+
+    // 5. Add password_hash if password is provided
+    if (password) {
+      if (password.length < 6) {
+        return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+      }
+      const saltRounds = 10;
+      const hashedPassword = await bcrypt.hash(password, saltRounds);
+      updatePayload.password_hash = hashedPassword;
     }
     // --- End of modification ---
 
