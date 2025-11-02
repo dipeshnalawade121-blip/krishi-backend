@@ -188,73 +188,55 @@ app.post('/reset-password', async (req, res) => {
   }
 });
 
-// Get User Profile (Updated: Accepts id or mobile, selects correct fields including mobile_verified)
+// Get User Profile
 app.post('/get-user-profile', async (req, res) => {
-  const { id, mobile } = req.body;
-  if (!id && (!mobile || mobile.length !== 10)) {
-    return res.status(400).json({ error: 'Provide id or valid mobile number' });
+  const { mobile } = req.body;
+  if (!mobile || mobile.length !== 10) {
+    return res.status(400).json({ error: 'Invalid mobile number' });
   }
 
   try {
-    let query = supabase.from('users').select('id, user_name, email, mobile, mobile_verified');
-    if (id) {
-      query = query.eq('id', id);
-    } else {
-      query = query.eq('mobile', mobile);
-    }
-    const { data: user, error } = await query.single();
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('user_name, email, mobile, password_hash, shop_name, shop_number, shop_address')
+      .eq('mobile', mobile)
+      .single();
 
     if (error || !user) {
       return res.status(404).json({ error: 'User profile not found' });
     }
 
-    // Don't expose sensitive fields if any
-    const safeUser = { ...user };
-    return res.json({ success: true, user: safeUser });
+    return res.json({ success: true, user: user });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Failed to fetch profile' });
   }
 });
 
-// Save Profile (Updated: Accepts id/mobile, handles password/mobile_verified, correct fields)
+// Save Profile (User-only)
 app.post('/save-profile', async (req, res) => {
-  const { id, mobile, user_name, email, password, mobile_verified } = req.body;
-  if (!id && (!mobile || mobile.length !== 10)) {
-    return res.status(400).json({ error: 'Provide id or valid mobile number' });
-  }
-  if (!user_name || !email) {
-    return res.status(400).json({ error: 'Missing required fields (user_name, email)' });
+  const { mobile, user_name, email } = req.body;
+  if (!mobile || mobile.length !== 10 || !user_name) {
+    return res.status(400).json({ error: 'Missing required user fields' });
   }
 
   try {
-    let findQuery = supabase.from('users').select('id');
-    if (id) {
-      findQuery = findQuery.eq('id', id);
-    } else {
-      findQuery = findQuery.eq('mobile', mobile);
-    }
-    const { data: user, error: findError } = await findQuery.single();
+    const { data: user, error: findError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('mobile', mobile)
+      .single();
 
     if (findError || !user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    // Build update object
-    const updateData = {
-      user_name: user_name.trim(),
-      email: email.trim(),
-      mobile_verified: mobile_verified || false
-    };
-    if (mobile && mobile.length === 10) updateData.mobile = mobile;
-    if (password && password.length >= 8) {
-      const saltRounds = 10;
-      updateData.password_hash = await bcrypt.hash(password, saltRounds);
+      return res.status(404).json({ error: 'User not found with this mobile' });
     }
 
     const { data, error } = await supabase
       .from('users')
-      .update(updateData)
+      .update({
+        user_name: user_name.trim(),
+        email: email ? email.trim() : null
+      })
       .eq('id', user.id)
       .select()
       .single();
@@ -264,10 +246,51 @@ app.post('/save-profile', async (req, res) => {
       return res.status(500).json({ error: 'Failed to save profile' });
     }
 
-    return res.json({ success: true, message: 'Profile saved successfully!', user: data });
+    return res.json({ success: true, message: 'Profile saved successfully!' });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Profile save failed' });
+  }
+});
+
+// Save Shop Profile
+app.post('/save-shop-profile', async (req, res) => {
+  const { mobile, shop_name, shop_number, shop_address } = req.body;
+  if (!mobile || mobile.length !== 10 || !shop_name || !shop_number || !shop_address) {
+    return res.status(400).json({ error: 'All shop fields required' });
+  }
+
+  try {
+    const { data: user, error: findError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('mobile', mobile)
+      .single();
+
+    if (findError || !user) {
+      return res.status(404).json({ error: 'User not found with this mobile' });
+    }
+
+    const { data, error } = await supabase
+      .from('users')
+      .update({
+        shop_name: shop_name.trim(),
+        shop_number: shop_number.trim(),
+        shop_address: shop_address.trim()
+      })
+      .eq('id', user.id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Shop profile update error:', error);
+      return res.status(500).json({ error: 'Failed to save shop profile' });
+    }
+
+    return res.json({ success: true, message: 'Shop profile saved successfully!' });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Shop profile save failed' });
   }
 });
 
@@ -337,64 +360,6 @@ app.post('/auth/google', async (req, res) => {
     });
   } catch (err) {
     console.error('Google login error:', err);
-    return res.status(401).json({ error: 'Invalid Google token' });
-  }
-});
-
-// NEW: Google Link for existing users
-app.post('/auth/google/link', async (req, res) => {
-  const { id_token, user_id } = req.body;
-  if (!id_token || !user_id) {
-    return res.status(400).json({ error: 'Missing Google ID token or user_id' });
-  }
-
-  try {
-    const ticket = await googleClient.verifyIdToken({
-      idToken: id_token,
-      audience: process.env.GOOGLE_CLIENT_ID,
-    });
-
-    const payload = ticket.getPayload();
-    const { sub, email, name, picture } = payload;
-
-    // Find existing user by id
-    const { data: existingUser, error: findError } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', user_id)
-      .single();
-
-    if (findError || !existingUser) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    // Update with Google data (set google_id if not set, always update name/email/pic)
-    const updateData = {
-      google_id: sub,
-      email: email || existingUser.email,
-      user_name: name || existingUser.user_name,
-      profile_pic: picture || existingUser.profile_pic
-    };
-
-    const { data: updatedUser, error: updateError } = await supabase
-      .from('users')
-      .update(updateData)
-      .eq('id', user_id)
-      .select()
-      .single();
-
-    if (updateError) {
-      console.error('Google link update error:', updateError);
-      return res.status(500).json({ error: 'Failed to link Google account' });
-    }
-
-    return res.json({
-      success: true,
-      message: 'Google account linked successfully!',
-      user: updatedUser
-    });
-  } catch (err) {
-    console.error('Google link error:', err);
     return res.status(401).json({ error: 'Invalid Google token' });
   }
 });
