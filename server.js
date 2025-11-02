@@ -190,29 +190,20 @@ app.post('/reset-password', async (req, res) => {
 
 // Get User Profile --- MODIFIED ---
 app.post('/get-user-profile', async (req, res) => {
-  // 1. Accept both mobile and id
-  const { mobile, id } = req.body;
+  // 1. Accept only id
+  const { id } = req.body;
 
-  // 2. Validate that at least one identifier is present
-  if (!mobile && !id) {
-    return res.status(400).json({ error: 'Mobile number or ID is required' });
-  }
-  // Validate mobile only if it's the identifier being used
-  if (mobile && mobile.length !== 10) {
-    return res.status(400).json({ error: 'Invalid mobile number' });
+  // 2. Validate that id is present
+  if (!id) {
+    return res.status(400).json({ error: 'ID is required' });
   }
 
   try {
-    // 3. Build query dynamically
+    // 3. Build query using only id
     let query = supabase
       .from('users')
-      .select('user_name, email, mobile, password_hash, shop_name, shop_number, shop_address');
-    
-    if (mobile) {
-      query = query.eq('mobile', mobile);
-    } else {
-      query = query.eq('id', id); // Allow query by ID
-    }
+      .select('user_name, email, mobile, password_hash, shop_name, shop_number, shop_address')
+      .eq('id', id); // Allow query by ID
 
     const { data: user, error } = await query.single();
     // --- End of modification ---
@@ -238,12 +229,12 @@ app.post('/get-user-profile', async (req, res) => {
 
 // Save Profile (User-only) --- MODIFIED ---
 app.post('/save-profile', async (req, res) => {
-  // 1. Accept id, mobile (optional), user_name, email
-  const { mobile, id, user_name, email } = req.body;
+  // 1. Accept id (mandatory), mobile (optional), user_name, email
+  const { id, mobile, user_name, email } = req.body;
 
   // 2. Validate identifier and user_name
-  if ((!mobile && !id) || !user_name) {
-    return res.status(400).json({ error: 'Missing required fields (id or mobile, and user_name)' });
+  if (!id || !user_name) {
+    return res.status(400).json({ error: 'Missing required fields (id and user_name)' });
   }
   // Validate mobile only if it was provided
   if (mobile && mobile.length !== 10) {
@@ -251,14 +242,11 @@ app.post('/save-profile', async (req, res) => {
   }
 
   try {
-    // 3. Find user by id or mobile
-    let findKey = mobile ? 'mobile' : id;
-    let findValue = mobile ? mobile : id;
-
+    // 3. Find user by id only
     const { data: user, error: findError } = await supabase
       .from('users')
       .select('id')
-      .eq(findKey, findValue)
+      .eq('id', id) // <-- Find by id only
       .single();
 
     if (findError || !user) {
@@ -295,18 +283,28 @@ app.post('/save-profile', async (req, res) => {
   }
 });
 
-// Save Shop Profile
+// Save Shop Profile --- MODIFIED ---
 app.post('/save-shop-profile', async (req, res) => {
-  const { mobile, shop_name, shop_number, shop_address } = req.body;
-  if (!mobile || mobile.length !== 10 || !shop_name || !shop_number || !shop_address) {
+  // 1. Accept id OR mobile, plus shop details
+  const { id, mobile, shop_name, shop_number, shop_address } = req.body;
+
+  // 2. Validate identifiers and shop details
+  if (!id && !mobile) {
+    return res.status(400).json({ error: 'Mobile or ID is required to find user' });
+  }
+  if (!shop_name || !shop_number || !shop_address) {
     return res.status(400).json({ error: 'All shop fields required' });
   }
 
   try {
+    // 3. Find user by id (priority) or mobile
+    let findKey = id ? 'id' : 'mobile';
+    let findValue = id ? id : mobile;
+
     const { data: user, error: findError } = await supabase
       .from('users')
       .select('id')
-      .eq('mobile', mobile)
+      .eq(findKey, findValue) // Find by id or mobile
       .single();
 
     if (findError || !user) {
@@ -413,3 +411,4 @@ app.post('/forgot-otp', async (req, res) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => console.log(`Server running on 0.0.0.0:${PORT}`));
+
