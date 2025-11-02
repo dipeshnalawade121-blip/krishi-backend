@@ -38,6 +38,22 @@ app.post('/send-otp', async (req, res) => {
     return res.status(400).json({ error: 'Invalid phone number' });
   }
 
+  // --- START: FAKE OTP IMPLEMENTATION FOR TESTING ---
+  const TEST_PHONE = '9999999999';
+  const FAKE_OTP = 123456; // Using number for consistency with generateOTP()
+
+  if (phone === TEST_PHONE) {
+    // Store the Fake OTP for verification in /verify-otp
+    otpStore[phone] = FAKE_OTP; 
+
+    // Log confirmation
+    console.log(`[TEST MODE] Fake OTP activated for ${phone}. Stored OTP: ${FAKE_OTP}`);
+
+    // Return success immediately to stop further execution (SKIPS FAST2SMS API CALL)
+    return res.json({ success: true }); 
+  }
+  // --- END: FAKE OTP IMPLEMENTATION ---
+
   const otp = generateOTP();
   otpStore[phone] = otp;
 
@@ -411,4 +427,3 @@ app.post('/forgot-otp', async (req, res) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => console.log(`Server running on 0.0.0.0:${PORT}`));
-
