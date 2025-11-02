@@ -188,56 +188,98 @@ app.post('/reset-password', async (req, res) => {
   }
 });
 
-// Get User Profile
+// Get User Profile --- MODIFIED ---
 app.post('/get-user-profile', async (req, res) => {
-  const { mobile } = req.body;
-  if (!mobile || mobile.length !== 10) {
+  // 1. Accept both mobile and id
+  const { mobile, id } = req.body;
+
+  // 2. Validate that at least one identifier is present
+  if (!mobile && !id) {
+    return res.status(400).json({ error: 'Mobile number or ID is required' });
+  }
+  // Validate mobile only if it's the identifier being used
+  if (mobile && mobile.length !== 10) {
     return res.status(400).json({ error: 'Invalid mobile number' });
   }
 
   try {
-    const { data: user, error } = await supabase
+    // 3. Build query dynamically
+    let query = supabase
       .from('users')
-      .select('user_name, email, mobile, password_hash, shop_name, shop_number, shop_address')
-      .eq('mobile', mobile)
-      .single();
+      .select('user_name, email, mobile, password_hash, shop_name, shop_number, shop_address');
+    
+    if (mobile) {
+      query = query.eq('mobile', mobile);
+    } else {
+      query = query.eq('id', id); // Allow query by ID
+    }
+
+    const { data: user, error } = await query.single();
+    // --- End of modification ---
 
     if (error || !user) {
-      return res.status(404).json({ error: 'User profile not found' });
+      // Handle Supabase 'PGRST116' error which means 0 rows found
+      if (error && error.code === 'PGRST116') {
+        return res.status(404).json({ error: 'User profile not found' });
+      }
+      // Handle other potential errors
+      if (error) throw error;
+      if (!user) {
+        return res.status(404).json({ error: 'User profile not found' });
+      }
     }
 
     return res.json({ success: true, user: user });
   } catch (err) {
-    console.error(err);
+    console.error('Get profile error:', err);
     return res.status(500).json({ error: 'Failed to fetch profile' });
   }
 });
 
-// Save Profile (User-only)
+// Save Profile (User-only) --- MODIFIED ---
 app.post('/save-profile', async (req, res) => {
-  const { mobile, user_name, email } = req.body;
-  if (!mobile || mobile.length !== 10 || !user_name) {
-    return res.status(400).json({ error: 'Missing required user fields' });
+  // 1. Accept id, mobile (optional), user_name, email
+  const { mobile, id, user_name, email } = req.body;
+
+  // 2. Validate identifier and user_name
+  if ((!mobile && !id) || !user_name) {
+    return res.status(400).json({ error: 'Missing required fields (id or mobile, and user_name)' });
+  }
+  // Validate mobile only if it was provided
+  if (mobile && mobile.length !== 10) {
+    return res.status(400).json({ error: 'Invalid mobile number' });
   }
 
   try {
+    // 3. Find user by id or mobile
+    let findKey = mobile ? 'mobile' : id;
+    let findValue = mobile ? mobile : id;
+
     const { data: user, error: findError } = await supabase
       .from('users')
       .select('id')
-      .eq('mobile', mobile)
+      .eq(findKey, findValue)
       .single();
 
     if (findError || !user) {
-      return res.status(404).json({ error: 'User not found with this mobile' });
+      return res.status(404).json({ error: 'User not found' });
     }
+
+    // 4. Construct update payload. Include mobile if it was passed (for Google users adding it)
+    const updatePayload = {
+      user_name: user_name.trim(),
+      email: email ? email.trim() : null
+    };
+
+    if (mobile) {
+      updatePayload.mobile = mobile.trim();
+    }
+    // --- End of modification ---
 
     const { data, error } = await supabase
       .from('users')
-      .update({
-        user_name: user_name.trim(),
-        email: email ? email.trim() : null
-      })
-      .eq('id', user.id)
+      .update(updatePayload) // Use the new payload
+      .eq('id', user.id) // Always update by the found user's ID
       .select()
       .single();
 
