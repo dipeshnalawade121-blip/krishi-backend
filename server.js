@@ -362,7 +362,7 @@ app.post('/save-shop-profile', async (req, res) => {
 
 // Google Auth (Fixed: Handle schema errors, explicit nulls)
 app.post('/auth/google', async (req, res) => {
-  const { id_token } = req.body;
+  const { id_token, existing_user_id } = req.body; // 🔥 accept existing user ID
   if (!id_token) {
     return res.status(400).json({ error: 'Missing Google ID token' });
   }
@@ -376,26 +376,39 @@ app.post('/auth/google', async (req, res) => {
     const payload = ticket.getPayload();
     const { sub, email, name, picture } = payload;
 
-    // Debug log (remove in prod)
-    console.log('Token verification details:', {
-      aud: payload.aud,
-      iss: payload.iss,
-      sub: payload.sub,
-      exp: payload.exp,
-      origin: req.headers.origin
-    });
+    console.log('Google payload:', { sub, email, name });
 
-    // Check if user exists
-    const { data: existingUser, error: findError } = await supabase
+    let user;
+
+    // 🔹 Case 1: User already exists with same google_id
+    const { data: existingGoogleUser } = await supabase
       .from('users')
       .select('*')
       .eq('google_id', sub)
       .single();
 
-    let user;
+    if (existingGoogleUser) {
+      user = existingGoogleUser;
+    }
+    // 🔹 Case 2: If existing_user_id is provided (from mobile signup), merge Google data into that row
+    else if (existing_user_id) {
+      const { data: updatedUser, error: updateError } = await supabase
+        .from('users')
+        .update({
+          google_id: sub,
+          email: email || null,
+          user_name: name || null,
+          profile_pic: picture || null,
+        })
+        .eq('id', existing_user_id)
+        .select()
+        .single();
 
-    if (!existingUser) {
-      // Create new user (mobile null for Google users)
+      if (updateError) throw updateError;
+      user = updatedUser;
+    }
+    // 🔹 Case 3: Brand new Google signup (no existing user)
+    else {
       const { data: newUser, error: insertError } = await supabase
         .from('users')
         .insert([
@@ -403,32 +416,28 @@ app.post('/auth/google', async (req, res) => {
             google_id: sub,
             email: email || null,
             user_name: name || null,
-            profile_pic: picture || null,  // Now safe post-schema update
-            mobile: null  // Explicit null; safe after ALTER
+            profile_pic: picture || null,
+            mobile: null,
           },
         ])
         .select()
         .single();
 
-      if (insertError) {
-        console.error('Google login error:', insertError);
-        return res.status(500).json({ error: 'Failed to create Google user account', details: insertError.message });
-      }
+      if (insertError) throw insertError;
       user = newUser;
-    } else {
-      user = existingUser;
     }
 
     return res.json({
       success: true,
-      message: 'Google login successful!',
+      message: 'Google link/login successful!',
       user,
     });
   } catch (err) {
-    console.error('Google login error:', err);
+    console.error('Google link error:', err);
     return res.status(401).json({ error: 'Invalid Google token' });
   }
 });
+
 
 // Forgot OTP (missing in your original? Add if needed)
 app.post('/forgot-otp', async (req, res) => {
